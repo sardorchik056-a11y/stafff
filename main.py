@@ -11,7 +11,7 @@ from flask import Flask, request, abort
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8874267892:AAGE-0NibbwqMhzV7Tg1BRq46ivl3-vz0qU")
 ADMIN_IDS = [8118184388, 8676390469]  # Список ID админов
 SUPPORT_LINK = "https://t.me/support_username"
-CRYPTO_PAY_TOKEN = os.environ.get("CRYPTOBOT_TOKEN", "590081:AAj9U2yzdrrVrQKldSd6OvjkpmXk4Q2nYIg)
+CRYPTO_PAY_TOKEN = os.environ.get("CRYPTOBOT_TOKEN", "590081:AAj9U2yzdrrVrQKldSd6OvjkpmXk4Q2nYIg")
 CRYPTO_API_URL = "https://pay.crypt.bot/api"
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "mysecrettoken")
 WEBHOOK_URL    = os.environ.get("WEBHOOK_URL", "")
