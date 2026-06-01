@@ -422,16 +422,15 @@ def cb_back_to_menu(call):
 
 @bot.callback_query_handler(func=lambda c: c.data == "rules")
 def cb_rules(call):
-    fine = get_setting("fine_amount", 0.5)
     markup = types.InlineKeyboardMarkup()
     markup.add(eib(f"{em('back')} Назад", callback_data="back_to_menu"))
     bot.edit_message_text(
-        f"📋 <b>Правила сервиса</b>\n\n"
-        f"1️⃣ После получения номера у вас есть <b>3 минуты</b> для отправки SMS.\n"
-        f"2️⃣ Если SMS не пришло — номер возвращается в сток.\n"
-        f"3️⃣ Штраф за истёкшее время: <b>{fine}$</b>.\n"
-        f"4️⃣ Средства за неудачную попытку возвращаются на баланс.\n"
-        f"5️⃣ Запрещено злоупотреблять сервисом.",
+        f"{em('rules')} <b>Правила сервиса</b>\n"
+        f"——————————————\n"
+        f"1️⃣ Код с номера выдаётся строго <b>1 раз</b>.\n\n"
+        f"2️⃣ Фрод после получения товара — <b>ваша проблема</b>.\n\n"
+        f"3️⃣ Возврат денег <b>невозможен</b> после отправки материалов.\n"
+        f"——————————————",
         call.message.chat.id, call.message.message_id,
         reply_markup=markup, parse_mode="HTML"
     )
