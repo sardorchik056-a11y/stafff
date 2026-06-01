@@ -428,12 +428,12 @@ def cb_rules(call):
     markup = types.InlineKeyboardMarkup()
     markup.add(eb("back", "Назад", callback_data="back_to_menu"))
     bot.edit_message_text(
-        f"<b>Правила сервиса</b>\n"
-        f"——————————————\n"
-        f"{em('confirm')} Код с номера выдаётся строго <b>1 раз</b>.\n\n"
-        f"{em('cancel')} Фрод после получения товара — <b>ваша проблема</b>.\n\n"
-        f"{em('rules')} Возврат денег <b>невозможен</b> после отправки материалов.\n"
-        f"——————————————",
+        f'<b>Правила сервиса</b>\n'
+        f'——————————————\n'
+        f'<tg-emoji emoji-id="5244961448525848230">⭐</tg-emoji> Код с номера выдаётся строго <b>1 раз</b>.\n\n'
+        f'<tg-emoji emoji-id="5242293676834579345">⭐</tg-emoji> Фрод после получения товара — <b>ваша проблема</b>.\n\n'
+        f'<tg-emoji emoji-id="5242652525647127686">⭐</tg-emoji> Возврат денег <b>невозможен</b> после отправки материалов.\n'
+        f'——————————————',
         call.message.chat.id, call.message.message_id,
         reply_markup=markup, parse_mode="HTML"
     )
@@ -657,29 +657,37 @@ def admin_text_input(message):
             f"⏳ Ожидаю СМС, отправьте код в течение 3 минут"
         )
         req = pending_requests.pop(user_id, None)
+        sent_chat_id = req["chat_id"] if req else user_id
+        sent_msg_id  = None
         try:
             if req:
-                bot.edit_message_text(
+                m = bot.edit_message_text(
                     user_text, req["chat_id"], req["search_msg_id"],
                     parse_mode="HTML", reply_markup=sent_cancel_kb()
                 )
+                sent_msg_id = req["search_msg_id"]
             else:
-                bot.send_message(user_id, user_text, parse_mode="HTML", reply_markup=sent_cancel_kb())
+                m = bot.send_message(user_id, user_text, parse_mode="HTML", reply_markup=sent_cancel_kb())
+                sent_msg_id = m.message_id
         except:
-            bot.send_message(user_id, user_text, parse_mode="HTML", reply_markup=sent_cancel_kb())
+            m = bot.send_message(user_id, user_text, parse_mode="HTML", reply_markup=sent_cancel_kb())
+            sent_msg_id = m.message_id
+        active_numbers[user_id]["chat_id"] = sent_chat_id
+        active_numbers[user_id]["msg_id"]  = sent_msg_id
 
         bot.send_message(aid, f"✅ Номер <code>{number}</code> выдан пользователю <code>{user_id}</code>.", parse_mode="HTML")
 
         def sms_timeout():
             if user_id in active_numbers:
-                fine = get_setting("fine_amount", 0.5)
+                fine     = get_setting("fine_amount", 0.5)
+                price_   = get_setting("number_price", 5.0)
+                returned = round(price_ - fine, 2)
                 u = get_user(user_id)
-                returned = round(u["balance"] - fine, 2)
-                update_user(user_id, {"balance": returned})
+                new_bal = round(u["balance"] + returned, 2)
+                update_user(user_id, {"balance": new_bal})
+                saved_chat = active_numbers[user_id].get("chat_id", user_id)
+                saved_msg  = active_numbers[user_id].get("msg_id")
                 del active_numbers[user_id]
-                req2 = pending_requests.pop(user_id, None)
-                chat2 = req2["chat_id"] if req2 else user_id
-                msg2  = req2["search_msg_id"] if req2 else None
                 fine_text = (
                     f"{em('cancel')} <b>Время вышло!</b>\n"
                     f"——————————————\n"
@@ -690,8 +698,8 @@ def admin_text_input(message):
                 markup_back = types.InlineKeyboardMarkup()
                 markup_back.add(eb("back", "В меню", callback_data="back_to_menu"))
                 try:
-                    if msg2:
-                        bot.edit_message_text(fine_text, chat2, msg2, reply_markup=markup_back, parse_mode="HTML")
+                    if saved_msg:
+                        bot.edit_message_text(fine_text, saved_chat, saved_msg, reply_markup=markup_back, parse_mode="HTML")
                     else:
                         bot.send_message(user_id, fine_text, reply_markup=markup_back, parse_mode="HTML")
                 except:
@@ -859,11 +867,13 @@ def cb_admin_fine(call):
     if not is_admin(call.from_user.id):
         bot.answer_callback_query(call.id, "⛔ Нет доступа")
         return
-    user_id = int(call.data.split("_")[2])
-    fine    = get_setting("fine_amount", 0.5)
-    u       = get_user(user_id)
-    returned = round(u["balance"] - fine, 2)
-    update_user(user_id, {"balance": returned})
+    user_id  = int(call.data.split("_")[2])
+    fine     = get_setting("fine_amount", 0.5)
+    price_   = get_setting("number_price", 5.0)
+    returned = round(price_ - fine, 2)
+    u = get_user(user_id)
+    new_bal = round(u["balance"] + returned, 2)
+    update_user(user_id, {"balance": new_bal})
 
     if user_id in active_numbers:
         cancel_timer(user_id)
