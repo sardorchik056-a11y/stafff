@@ -5,15 +5,34 @@ import os
 import threading
 import requests
 from datetime import datetime
+from flask import Flask, request, abort
 
 # ==================== CONFIG ====================
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8183211325:AAGmSXuqkxHuXz4iWLbBNhrcImFy_Em3kGE")
-ADMIN_IDS = [8118184388]  # Список ID админов
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8874267892:AAGE-0NibbwqMhzV7Tg1BRq46ivl3-vz0qU")
+ADMIN_IDS = [8118184388, 8676390469]  # Список ID админов
 SUPPORT_LINK = "https://t.me/support_username"
-CRYPTO_PAY_TOKEN = os.environ.get("CRYPTOBOT_TOKEN", "582363:AALEf7JOugnrQyrkMHzH5UrO7pdOjjYnTQy")
+CRYPTO_PAY_TOKEN = os.environ.get("CRYPTOBOT_TOKEN", "590081:AAj9U2yzdrrVrQKldSd6OvjkpmXk4Q2nYIg)
 CRYPTO_API_URL = "https://pay.crypt.bot/api"
+WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "mysecrettoken")
+WEBHOOK_URL    = os.environ.get("WEBHOOK_URL", "")
 
 bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
+
+# ==================== FLASK ====================
+app = Flask(__name__)
+
+@app.route(f"/webhook/{WEBHOOK_SECRET}", methods=["POST"])
+def webhook():
+    if request.headers.get("content-type") != "application/json":
+        abort(403)
+    json_data = request.get_data().decode("utf-8")
+    update = telebot.types.Update.de_json(json_data)
+    bot.process_new_updates([update])
+    return "OK", 200
+
+@app.route("/", methods=["GET"])
+def index():
+    return "Bot is running!", 200
 
 # ==================== CUSTOM EMOJI ====================
 E = {
@@ -955,6 +974,17 @@ def cb_admin_set_sticker(call):
 
 # ==================== RUN ====================
 
+def setup_webhook():
+    if WEBHOOK_URL:
+        webhook_full_url = f"{WEBHOOK_URL}/webhook/{WEBHOOK_SECRET}"
+        bot.remove_webhook()
+        bot.set_webhook(url=webhook_full_url)
+        print(f"Webhook установлен: {webhook_full_url}")
+    else:
+        print("ВНИМАНИЕ: WEBHOOK_URL не задан!")
+
 if __name__ == "__main__":
-    print("🤖 Bot started...")
-    bot.infinity_polling()
+    setup_webhook()
+    port = int(os.environ.get("PORT", 8080))
+    print(f"🤖 Bot started on port {port}!")
+    app.run(host="0.0.0.0", port=port)
