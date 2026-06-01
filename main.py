@@ -252,15 +252,15 @@ def main_menu_kb():
 
 def balance_kb():
     kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(types.InlineKeyboardButton("Пополнить баланс", callback_data="refill_balance"))
-    kb.add(types.InlineKeyboardButton("Назад", callback_data="back_to_menu"))
+    kb.add(eib(f"{em('refill')} Пополнить баланс", callback_data="refill_balance"))
+    kb.add(eib(f"{em('back')} Назад", callback_data="back_to_menu"))
     return kb
 
 def topup_amount_kb():
-    kb = types.InlineKeyboardMarkup(row_width=3)
-    for amt in [1, 2, 5, 10, 20, 50]:
-        kb.add(eib(f"{amt}$", callback_data=f"topup_amount_{amt}"))
-    kb.add(eib("✏️ Своя сумма", callback_data="topup_custom"))
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    buttons = [eib(f"{em('price')} {amt}$", callback_data=f"topup_amount_{amt}") for amt in [1, 2, 5, 10, 20, 50]]
+    kb.add(*buttons)
+    kb.add(eib(f"✏️ Своя сумма", callback_data="topup_custom"))
     kb.add(eib(f"{em('back')} Назад", callback_data="back_balance"))
     return kb
 
@@ -355,9 +355,9 @@ def show_balance_inline(chat_id, user_id, message_id=None):
 
     text = (
         f"——————————————\n"
-        f'|<tg-emoji emoji-id="5906581476639513176">⭐</tg-emoji>User: @{username}!\n'
-        f'|<tg-emoji emoji-id="5445353829304387411">⭐</tg-emoji>ID: {user_id}\n'
-        f'|<tg-emoji emoji-id="6078158956188930337">⭐</tg-emoji>Баланс: {balance}$\n'
+        f"|{em('user')} User: @{username}!\n"
+        f"|{em('id')} ID: {user_id}\n"
+        f"|{em('balance')} Баланс: {balance}$\n"
         f"——————————————"
     )
 
@@ -462,8 +462,10 @@ def cb_refill_balance(call):
     bot.clear_step_handler_by_chat_id(call.message.chat.id)
     bot.edit_message_text(
         f"{em('refill')} <b>Пополнение баланса</b>\n\n"
+        f"——————————————\n"
         f"{em('buy')} Выберите сумму или введите свою.\n"
-        f"Принимаем: USDT, TON, BTC, ETH, LTC, BNB и другие через @CryptoBot.",
+        f"{em('price')} Принимаем: USDT, TON, BTC, ETH и другие через @CryptoBot.\n"
+        f"——————————————",
         call.message.chat.id, call.message.message_id,
         reply_markup=topup_amount_kb(), parse_mode="HTML"
     )
