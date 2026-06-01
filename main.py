@@ -291,8 +291,11 @@ def admin_request_kb(user_id):
     return kb
 
 def admin_code_kb(user_id):
-    kb = types.InlineKeyboardMarkup()
-    kb.add(eib("📨 Ввести код", callback_data=f"admin_enter_code_{user_id}"))
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        eib("📨 Ввести код", callback_data=f"admin_enter_code_{user_id}"),
+        eib("💸 Штраф", callback_data=f"admin_fine_{user_id}")
+    )
     return kb
 
 def admin_fine_kb(user_id):
@@ -425,11 +428,11 @@ def cb_rules(call):
     markup = types.InlineKeyboardMarkup()
     markup.add(eb("back", "Назад", callback_data="back_to_menu"))
     bot.edit_message_text(
-        f"{em('rules')} <b>Правила сервиса</b>\n"
+        f"<b>Правила сервиса</b>\n"
         f"——————————————\n"
-        f"1️⃣ Код с номера выдаётся строго <b>1 раз</b>.\n\n"
-        f"2️⃣ Фрод после получения товара — <b>ваша проблема</b>.\n\n"
-        f"3️⃣ Возврат денег <b>невозможен</b> после отправки материалов.\n"
+        f"{em('confirm')} Код с номера выдаётся строго <b>1 раз</b>.\n\n"
+        f"{em('cancel')} Фрод после получения товара — <b>ваша проблема</b>.\n\n"
+        f"{em('rules')} Возврат денег <b>невозможен</b> после отправки материалов.\n"
         f"——————————————",
         call.message.chat.id, call.message.message_id,
         reply_markup=markup, parse_mode="HTML"
@@ -478,17 +481,13 @@ def handle_custom_topup_input(message, msg_id):
         bot.register_next_step_handler(m, handle_custom_topup_input, msg_id)
 
 def process_topup(user_id, amount, chat_id, message_id):
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(eb("back", "Назад", callback_data="back_balance"))
-    bot.edit_message_text(
-        f"⏳ Создаю счёт на <b>{amount}$</b>...",
-        chat_id, message_id, reply_markup=markup, parse_mode="HTML"
-    )
+    markup_back = types.InlineKeyboardMarkup(row_width=1)
+    markup_back.add(eb("back", "Назад", callback_data="back_balance"))
     invoice = create_invoice_crypto(amount, user_id)
     if not invoice:
         bot.edit_message_text(
             f"{em('cancel')} <b>Ошибка создания счёта.</b>\n\nПопробуйте позже.",
-            chat_id, message_id, reply_markup=markup, parse_mode="HTML"
+            chat_id, message_id, reply_markup=markup_back, parse_mode="HTML"
         )
         return
     invoice_id = invoice["invoice_id"]
@@ -497,10 +496,10 @@ def process_topup(user_id, amount, chat_id, message_id):
     invoices[str(invoice_id)] = invoice
     save_invoices(invoices)
     msg = bot.edit_message_text(
-        f"{em('pay')} <b>Счёт на оплату</b>\n\n"
+        f"{em('pay')} <b>Счёт на оплату</b>\n"
+        f"——————————————\n"
         f"{em('price')} Сумма: <b>{amount}$</b>\n"
-        f"{em('buy')} Метод: CryptoBot (USDT)\n\n"
-        f"Ожидаю оплату...",
+        f"——————————————",
         chat_id, message_id,
         reply_markup=pay_kb(pay_url), parse_mode="HTML"
     )
@@ -521,9 +520,10 @@ def cb_refill_balance(call):
     markup = types.InlineKeyboardMarkup(row_width=1)
     markup.add(eb("back", "Назад", callback_data="back_balance"))
     msg = bot.edit_message_text(
-        f"{em('refill')} <b>Пополнение баланса</b>\n\n"
-        f"{em('buy')} Введите сумму от 1$:\n"
-        f"Принимаем: USDT через @CryptoBot.",
+        f"{em('refill')} <b>Пополнение баланса</b>\n"
+        f"——————————————\n"
+        f"{em('price')} Введите сумму от 1$:\n"
+        f"——————————————",
         call.message.chat.id, call.message.message_id,
         reply_markup=markup, parse_mode="HTML"
     )
@@ -672,20 +672,45 @@ def admin_text_input(message):
 
         def sms_timeout():
             if user_id in active_numbers:
-                for a in ADMIN_IDS:
-                    bot.send_message(
-                        a,
-                        f"‼️ <b>СМС не пришло</b> ‼️\n\n"
-                        f"{em('phone')} Номер: <code>{number}</code>\n"
-                        f"{em('id')} ID: <code>{user_id}</code>",
-                        parse_mode="HTML", reply_markup=admin_fine_kb(user_id)
-                    )
-                bot.send_message(
-                    user_id,
-                    f"‼️ <b>СМС не пришло</b> ‼️\n\n🟢 Номер был возвращён в сток",
-                    parse_mode="HTML"
-                )
+                fine = get_setting("fine_amount", 0.5)
+                u = get_user(user_id)
+                returned = round(u["balance"] - fine, 2)
+                update_user(user_id, {"balance": returned})
                 del active_numbers[user_id]
+                req2 = pending_requests.pop(user_id, None)
+                chat2 = req2["chat_id"] if req2 else user_id
+                msg2  = req2["search_msg_id"] if req2 else None
+                fine_text = (
+                    f"{em('cancel')} <b>Время вышло!</b>\n"
+                    f"——————————————\n"
+                    f"{em('price')} Штраф: <b>{fine}$</b>\n"
+                    f"{em('balance')} Возврат на баланс: <b>{returned}$</b>\n"
+                    f"——————————————"
+                )
+                markup_back = types.InlineKeyboardMarkup()
+                markup_back.add(eb("back", "В меню", callback_data="back_to_menu"))
+                try:
+                    if msg2:
+                        bot.edit_message_text(fine_text, chat2, msg2, reply_markup=markup_back, parse_mode="HTML")
+                    else:
+                        bot.send_message(user_id, fine_text, reply_markup=markup_back, parse_mode="HTML")
+                except:
+                    try:
+                        bot.send_message(user_id, fine_text, reply_markup=markup_back, parse_mode="HTML")
+                    except:
+                        pass
+                for a in ADMIN_IDS:
+                    try:
+                        bot.send_message(
+                            a,
+                            f"⏰ <b>Автоштраф применён</b>\n\n"
+                            f"{em('phone')} Номер: <code>{number}</code>\n"
+                            f"{em('id')} ID: <code>{user_id}</code>\n"
+                            f"{em('price')} Штраф: <b>{fine}$</b>",
+                            parse_mode="HTML"
+                        )
+                    except:
+                        pass
 
         timer = threading.Timer(180, sms_timeout)
         timer.daemon = True
@@ -837,25 +862,30 @@ def cb_admin_fine(call):
     user_id = int(call.data.split("_")[2])
     fine    = get_setting("fine_amount", 0.5)
     u       = get_user(user_id)
-    new_bal = round(u["balance"] - fine, 4)
-    update_user(user_id, {"balance": new_bal})
+    returned = round(u["balance"] - fine, 2)
+    update_user(user_id, {"balance": returned})
 
-    # Редактируем сообщение пользователю (не отправляем новое)
+    if user_id in active_numbers:
+        cancel_timer(user_id)
+        del active_numbers[user_id]
+
+    fine_text = (
+        f"{em('cancel')} <b>Время вышло!</b>\n"
+        f"——————————————\n"
+        f"{em('price')} Штраф: <b>{fine}$</b>\n"
+        f"{em('balance')} Возврат на баланс: <b>{returned}$</b>\n"
+        f"——————————————"
+    )
+    markup_back = types.InlineKeyboardMarkup()
+    markup_back.add(eb("back", "В меню", callback_data="back_to_menu"))
     try:
-        bot.send_message(
-            user_id,
-            f"‼️ <b>СМС не пришло</b> ‼️\n\n"
-            f"🟢 Номер был возвращён в сток\n\n"
-            f"🌐 Штраф: <b>{fine}$</b>",
-            parse_mode="HTML"
-        )
+        bot.send_message(user_id, fine_text, reply_markup=markup_back, parse_mode="HTML")
     except:
         pass
 
-    # Редактируем сообщение у админа — убираем кнопку штрафа
     bot.edit_message_text(
-        f"✅ Штраф <b>{fine}$</b> применён к пользователю <code>{user_id}</code>.\n"
-        f"💰 Новый баланс юзера: <b>{new_bal}$</b>",
+        f"✅ Штраф <b>{fine}$</b> применён к <code>{user_id}</code>.\n"
+        f"{em('balance')} Возврат на баланс: <b>{returned}$</b>",
         call.message.chat.id, call.message.message_id,
         parse_mode="HTML"
     )
