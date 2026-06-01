@@ -39,8 +39,15 @@ E = {
 def em(key):
     return f'<tg-emoji emoji-id="{E[key]}">⭐</tg-emoji>'
 
+def eb(key, label, **kwargs):
+    return types.InlineKeyboardButton(
+        text=label,
+        icon_custom_emoji_id=E[key],
+        **kwargs
+    )
+
 def eib(label, **kwargs):
-    """Inline button"""
+    """Inline button without custom emoji"""
     return types.InlineKeyboardButton(text=label, **kwargs)
 
 # ==================== DATABASE ====================
@@ -195,7 +202,7 @@ def monitor_invoice(invoice_id, user_id, chat_id, message_id, amount_usd):
         elif status == "expired":
             try:
                 markup = types.InlineKeyboardMarkup()
-                markup.add(eib(f"{em('back')} Назад", callback_data="back_balance"))
+                markup.add(eb("back", "Назад", callback_data="back_balance"))
                 bot.edit_message_text(
                     "❌ Время оплаты истекло. Создайте новый счёт.",
                     chat_id, message_id, reply_markup=markup, parse_mode="HTML"
@@ -242,44 +249,37 @@ def cancel_timer(user_id):
 
 def main_menu_kb():
     kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(eib(f"{em('phone')} Взять номер", callback_data="take_number"))
+    kb.add(eb("phone", "Взять номер", callback_data="take_number"))
     kb.add(
-        eib(f"{em('balance')} Баланс", callback_data="check_balance"),
-        eib(f"{em('rules')} Правила",  callback_data="rules")
+        eb("balance", "Баланс", callback_data="check_balance"),
+        eb("rules", "Правила", callback_data="rules")
     )
-    kb.add(eib(f"{em('support')} Поддержка", url=SUPPORT_LINK))
+    kb.add(eb("support", "Поддержка", url=SUPPORT_LINK))
     return kb
 
 def balance_kb():
     kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(eib(f"{em('refill')} Пополнить баланс", callback_data="refill_balance"))
-    kb.add(eib(f"{em('back')} Назад", callback_data="back_to_menu"))
+    kb.add(eb("refill", "Пополнить баланс", callback_data="refill_balance"))
+    kb.add(eb("back", "Назад", callback_data="back_to_menu"))
     return kb
 
-def topup_amount_kb():
-    kb = types.InlineKeyboardMarkup(row_width=2)
-    buttons = [eib(f"{em('price')} {amt}$", callback_data=f"topup_amount_{amt}") for amt in [1, 2, 5, 10, 20, 50]]
-    kb.add(*buttons)
-    kb.add(eib(f"✏️ Своя сумма", callback_data="topup_custom"))
-    kb.add(eib(f"{em('back')} Назад", callback_data="back_balance"))
-    return kb
 
-def pay_kb(pay_url, invoice_id):
+
+def pay_kb(pay_url):
     kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(eib(f"{em('pay')} Оплатить через CryptoBot", url=pay_url))
-    kb.add(eib(f"{em('check')} Я оплатил", callback_data=f"check_payment_{invoice_id}"))
-    kb.add(eib(f"{em('cancel')} Отмена", callback_data="back_balance"))
+    kb.add(eb("pay", "Оплатить", url=pay_url))
+    kb.add(eb("back", "Назад", callback_data="back_balance"))
     return kb
 
 def cancel_kb():
     kb = types.InlineKeyboardMarkup()
-    kb.add(eib(f"{em('cancel')} Отмена", callback_data="user_cancel"))
+    kb.add(eb("cancel", "Отмена", callback_data="user_cancel"))
     return kb
 
 def sent_cancel_kb():
     kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(eib(f"{em('confirm')} Отправил", callback_data="user_sent"))
-    kb.add(eib(f"{em('cancel')} Отмена", callback_data="user_cancel_number"))
+    kb.add(eb("confirm", "Отправил", callback_data="user_sent"))
+    kb.add(eb("cancel", "Отмена", callback_data="user_cancel_number"))
     return kb
 
 def admin_request_kb(user_id):
@@ -423,7 +423,7 @@ def cb_back_to_menu(call):
 @bot.callback_query_handler(func=lambda c: c.data == "rules")
 def cb_rules(call):
     markup = types.InlineKeyboardMarkup()
-    markup.add(eib(f"{em('back')} Назад", callback_data="back_to_menu"))
+    markup.add(eb("back", "Назад", callback_data="back_to_menu"))
     bot.edit_message_text(
         f"{em('rules')} <b>Правила сервиса</b>\n"
         f"——————————————\n"
@@ -452,76 +452,34 @@ def cb_back_balance(call):
     show_balance_inline(call.message.chat.id, call.from_user.id, call.message.message_id)
     bot.answer_callback_query(call.id)
 
-# ==================== TOPUP ====================
-
-@bot.callback_query_handler(func=lambda c: c.data == "refill_balance")
-def cb_refill_balance(call):
-    if is_banned(call.from_user.id):
-        return
-    bot.clear_step_handler_by_chat_id(call.message.chat.id)
-    bot.edit_message_text(
-        f"{em('refill')} <b>Пополнение баланса</b>\n\n"
-        f"——————————————\n"
-        f"{em('buy')} Выберите сумму или введите свою.\n"
-        f"{em('price')} Принимаем: USDT, TON, BTC, ETH и другие через @CryptoBot.\n"
-        f"——————————————",
-        call.message.chat.id, call.message.message_id,
-        reply_markup=topup_amount_kb(), parse_mode="HTML"
-    )
-    bot.answer_callback_query(call.id)
-
-@bot.callback_query_handler(func=lambda c: c.data.startswith("topup_amount_"))
-def cb_topup_amount(call):
-    amount = float(call.data.split("_")[2])
-    bot.answer_callback_query(call.id)
-    process_topup(call.from_user.id, amount, call.message.chat.id, call.message.message_id)
-
-@bot.callback_query_handler(func=lambda c: c.data == "topup_custom")
-def cb_topup_custom(call):
-    uid = call.from_user.id
-    user_state[uid] = {"action": "custom_topup", "msg_id": call.message.message_id}
-    markup = types.InlineKeyboardMarkup()
-    markup.add(eib(f"{em('back')} Назад", callback_data="refill_balance"))
-    msg = bot.edit_message_text(
-        f"{em('refill')} <b>Пополнение баланса</b>\n\n"
-        f"Введите сумму в $ (минимум 1$):",
-        call.message.chat.id, call.message.message_id,
-        reply_markup=markup, parse_mode="HTML"
-    )
-    bot.register_next_step_handler(msg, handle_custom_topup_input, call.message.message_id)
-    bot.answer_callback_query(call.id)
-
 def handle_custom_topup_input(message, msg_id):
     uid = message.from_user.id
-    user_state.pop(uid, None)
     try:
         bot.delete_message(message.chat.id, message.message_id)
     except:
         pass
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(eb("back", "Назад", callback_data="back_balance"))
     try:
         amount = float(message.text.strip().replace(",", "."))
         if amount < 1:
-            markup = types.InlineKeyboardMarkup()
-            markup.add(eib(f"{em('back')} Назад", callback_data="refill_balance"))
             m = bot.edit_message_text(
-                f"{em('cancel')} Минимальная сумма 1$!\n\nВведите сумму заново:",
+                f"{em('cancel')} <b>Минимальная сумма 1$!</b>\n\nВведите сумму заново:",
                 message.chat.id, msg_id, reply_markup=markup, parse_mode="HTML"
             )
             bot.register_next_step_handler(m, handle_custom_topup_input, msg_id)
             return
         process_topup(uid, amount, message.chat.id, msg_id)
     except:
-        markup = types.InlineKeyboardMarkup()
-        markup.add(eib(f"{em('back')} Назад", callback_data="refill_balance"))
         m = bot.edit_message_text(
-            f"{em('cancel')} Введите число! Например: 5.0",
+            f"{em('cancel')} Введите число! Например: 5",
             message.chat.id, msg_id, reply_markup=markup, parse_mode="HTML"
         )
         bot.register_next_step_handler(m, handle_custom_topup_input, msg_id)
 
 def process_topup(user_id, amount, chat_id, message_id):
-    markup = types.InlineKeyboardMarkup()
-    markup.add(eib(f"{em('back')} Назад", callback_data="refill_balance"))
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(eb("back", "Назад", callback_data="back_balance"))
     bot.edit_message_text(
         f"⏳ Создаю счёт на <b>{amount}$</b>...",
         chat_id, message_id, reply_markup=markup, parse_mode="HTML"
@@ -529,81 +487,50 @@ def process_topup(user_id, amount, chat_id, message_id):
     invoice = create_invoice_crypto(amount, user_id)
     if not invoice:
         bot.edit_message_text(
-            f"{em('cancel')} <b>Ошибка создания счёта.</b>\n\nПопробуйте позже или обратитесь в поддержку.",
+            f"{em('cancel')} <b>Ошибка создания счёта.</b>\n\nПопробуйте позже.",
             chat_id, message_id, reply_markup=markup, parse_mode="HTML"
         )
         return
-
     invoice_id = invoice["invoice_id"]
-    pay_url    = invoice["pay_url"]
-
+    pay_url = invoice["pay_url"]
     invoices = load_invoices()
     invoices[str(invoice_id)] = invoice
     save_invoices(invoices)
-
-    bot.edit_message_text(
-        f"{em('pay')} <b>Счёт на оплату создан</b>\n\n"
+    msg = bot.edit_message_text(
+        f"{em('pay')} <b>Счёт на оплату</b>\n\n"
         f"{em('price')} Сумма: <b>{amount}$</b>\n"
-        f"🔖 Номер счёта: <code>{invoice_id}</code>\n"
-        f"⏱ Действует: <b>1 час</b>\n\n"
-        f"Оплата через @CryptoBot: USDT, TON, BTC, ETH, LTC, BNB и другие.\n\n"
-        f"После оплаты нажмите <b>«{em('check')} Я оплатил»</b>",
+        f"{em('buy')} Метод: CryptoBot (USDT)\n\n"
+        f"Ожидаю оплату...",
         chat_id, message_id,
-        reply_markup=pay_kb(pay_url, invoice_id), parse_mode="HTML"
+        reply_markup=pay_kb(pay_url), parse_mode="HTML"
     )
-
     thread = threading.Thread(
         target=monitor_invoice,
-        args=(invoice_id, user_id, chat_id, message_id, amount)
+        args=(invoice_id, user_id, chat_id, msg.message_id, amount)
     )
     thread.daemon = True
     thread.start()
 
-@bot.callback_query_handler(func=lambda c: c.data.startswith("check_payment_"))
-def cb_check_payment(call):
-    invoice_id = int(call.data.split("_")[2])
-    uid = call.from_user.id
-    bot.answer_callback_query(call.id, "🔍 Проверяю оплату...", show_alert=False)
+# ==================== TOPUP ====================
 
-    invoices = load_invoices()
-    inv_data = invoices.get(str(invoice_id))
-    if not inv_data:
-        bot.send_message(uid, "❌ Счёт не найден.")
+@bot.callback_query_handler(func=lambda c: c.data == "refill_balance")
+def cb_refill_balance(call):
+    if is_banned(call.from_user.id):
         return
-    if inv_data.get("paid"):
-        bot.send_message(uid, "✅ Этот счёт уже был оплачен ранее.")
-        return
+    bot.clear_step_handler_by_chat_id(call.message.chat.id)
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(eb("back", "Назад", callback_data="back_balance"))
+    msg = bot.edit_message_text(
+        f"{em('refill')} <b>Пополнение баланса</b>\n\n"
+        f"{em('buy')} Введите сумму от 1$:\n"
+        f"Принимаем: USDT через @CryptoBot.",
+        call.message.chat.id, call.message.message_id,
+        reply_markup=markup, parse_mode="HTML"
+    )
+    bot.register_next_step_handler(msg, handle_custom_topup_input, call.message.message_id)
+    bot.answer_callback_query(call.id)
 
-    inv = check_invoice_status(invoice_id)
-    if inv and inv.get("status") == "paid":
-        amount = inv_data["amount"]
-        invoices[str(invoice_id)]["paid"] = True
-        save_invoices(invoices)
-        users = load_users()
-        uid_s = str(uid)
-        if uid_s in users:
-            users[uid_s]["balance"] = round(users[uid_s]["balance"] + amount, 2)
-            save_users(users)
-        new_balance = get_user(uid)["balance"]
-        try:
-            bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
-        except:
-            pass
-        bot.send_message(
-            uid,
-            f"{em('confirm')} <b>Оплата подтверждена!</b>\n\n"
-            f"💵 Зачислено: <b>+{amount}$</b>\n"
-            f"{em('balance')} Новый баланс: <b>{new_balance}$</b>",
-            parse_mode="HTML"
-        )
-        show_balance_inline(call.message.chat.id, uid)
-    else:
-        status = inv.get("status", "неизвестен") if inv else "ошибка"
-        bot.answer_callback_query(
-            call.id,
-            f"⏳ Оплата ещё не поступила.\nСтатус: {status}",
-            show_alert=True
-        )
+
 
 # ==================== TAKE NUMBER ====================
 
@@ -618,8 +545,8 @@ def cb_take_number(call):
     u = get_user(uid)
     if u["balance"] < price:
         markup = types.InlineKeyboardMarkup()
-        markup.add(eib(f"{em('refill')} Пополнить баланс", callback_data="refill_balance"))
-        markup.add(eib(f"{em('back')} Назад", callback_data="back_to_menu"))
+        markup.add(eb("refill", "Пополнить баланс", callback_data="refill_balance"))
+        markup.add(eb("back", "Назад", callback_data="back_to_menu"))
         bot.edit_message_text(
             f"{em('cancel')} <b>Недостаточно средств!</b>\n\n"
             f"💲 Стоимость номера: <b>{price}$</b>\n"
@@ -688,7 +615,7 @@ def cb_admin_reject(call):
                 f"{em('cancel')} <b>В стоке нет номеров.</b>\n\nСредства возвращены на ваш баланс.",
                 req["chat_id"], req["search_msg_id"],
                 reply_markup=types.InlineKeyboardMarkup().add(
-                    eib(f"{em('back')} В меню", callback_data="back_to_menu")
+                    eb("back", "В меню", callback_data="back_to_menu")
                 ),
                 parse_mode="HTML"
             )
