@@ -6,6 +6,8 @@ import threading
 import requests
 from datetime import datetime
 from flask import Flask, request, abort
+from collections import defaultdict
+import time
 
 # ==================== CONFIG ====================
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8874267892:AAGE-0NibbwqMhzV7Tg1BRq46ivl3-vz0qU")
@@ -16,19 +18,49 @@ CRYPTO_API_URL = "https://pay.crypt.bot/api"
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "mysecrettoken")
 WEBHOOK_URL    = os.environ.get("WEBHOOK_URL", "")
 
-bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
+# ==================== БЛОКИРОВКИ ДЛЯ ФАЙЛОВ ====================
+DB_FILE      = "users_db.json"
+ADMIN_DB     = "admin_db.json"
+INVOICE_DB   = "invoices_db.json"
+
+file_locks = {
+    DB_FILE: threading.Lock(),
+    ADMIN_DB: threading.Lock(),
+    INVOICE_DB: threading.Lock()
+}
+
+# Rate limiting
+user_last_message = defaultdict(float)
+
+def check_rate_limit(user_id, cooldown_seconds=1):
+    now = time.time()
+    if now - user_last_message[user_id] < cooldown_seconds:
+        return False
+    user_last_message[user_id] = now
+    return True
+
+bot = telebot.TeleBot(BOT_TOKEN, threaded=True)
 
 # ==================== FLASK ====================
 app = Flask(__name__)
 
 @app.route(f"/webhook/{WEBHOOK_SECRET}", methods=["POST"])
 def webhook():
-    if request.headers.get("content-type") != "application/json":
-        abort(403)
-    json_data = request.get_data().decode("utf-8")
-    update = telebot.types.Update.de_json(json_data)
-    bot.process_new_updates([update])
-    return "OK", 200
+    try:
+        if request.headers.get("content-type") != "application/json":
+            abort(403)
+        json_data = request.get_data().decode("utf-8")
+        update = telebot.types.Update.de_json(json_data)
+        if update:
+            thread = threading.Thread(target=bot.process_new_updates, args=([update],))
+            thread.daemon = True
+            thread.start()
+        return "OK", 200
+    except Exception as e:
+        print(f"Webhook error: {e}")
+        import traceback
+        traceback.print_exc()
+        return "Error", 500
 
 @app.route("/", methods=["GET"])
 def index():
@@ -70,24 +102,47 @@ def eib(label, **kwargs):
     return types.InlineKeyboardButton(text=label, **kwargs)
 
 # ==================== DATABASE ====================
-DB_FILE      = "users_db.json"
-ADMIN_DB     = "admin_db.json"
-INVOICE_DB   = "invoices_db.json"
 
 def load_users():
-    if os.path.exists(DB_FILE):
-        with open(DB_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+    with file_locks[DB_FILE]:
+        if os.path.exists(DB_FILE):
+            try:
+                with open(DB_FILE, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                return {}
     return {}
 
 def save_users(users):
-    with open(DB_FILE, 'w', encoding='utf-8') as f:
-        json.dump(users, f, ensure_ascii=False, indent=2)
+    with file_locks[DB_FILE]:
+        temp_file = DB_FILE + ".tmp"
+        try:
+            with open(temp_file, 'w', encoding='utf-8') as f:
+                json.dump(users, f, ensure_ascii=False, indent=2)
+            os.replace(temp_file, DB_FILE)
+        except Exception as e:
+            print(f"Ошибка сохранения users: {e}")
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
 
 def load_admin_db():
-    if os.path.exists(ADMIN_DB):
-        with open(ADMIN_DB, 'r', encoding='utf-8') as f:
-            return json.load(f)
+    with file_locks[ADMIN_DB]:
+        if os.path.exists(ADMIN_DB):
+            try:
+                with open(ADMIN_DB, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    defaults = {
+                        "fine_amount": 0.5,
+                        "number_price": 5.0,
+                        "menu_sticker": None,
+                        "banned_users": [],
+                    }
+                    for key, default in defaults.items():
+                        if key not in data:
+                            data[key] = default
+                    return data
+            except (json.JSONDecodeError, FileNotFoundError):
+                pass
     return {
         "fine_amount": 0.5,
         "number_price": 5.0,
@@ -96,18 +151,38 @@ def load_admin_db():
     }
 
 def save_admin_db(data):
-    with open(ADMIN_DB, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    with file_locks[ADMIN_DB]:
+        temp_file = ADMIN_DB + ".tmp"
+        try:
+            with open(temp_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(temp_file, ADMIN_DB)
+        except Exception as e:
+            print(f"Ошибка сохранения admin_db: {e}")
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
 
 def load_invoices():
-    if os.path.exists(INVOICE_DB):
-        with open(INVOICE_DB, 'r', encoding='utf-8') as f:
-            return json.load(f)
+    with file_locks[INVOICE_DB]:
+        if os.path.exists(INVOICE_DB):
+            try:
+                with open(INVOICE_DB, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                pass
     return {}
 
 def save_invoices(data):
-    with open(INVOICE_DB, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    with file_locks[INVOICE_DB]:
+        temp_file = INVOICE_DB + ".tmp"
+        try:
+            with open(temp_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(temp_file, INVOICE_DB)
+        except Exception as e:
+            print(f"Ошибка сохранения invoices: {e}")
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
 
 def get_user(user_id):
     users = load_users()
@@ -184,7 +259,6 @@ def check_invoice_status(invoice_id):
         return None
 
 def monitor_invoice(invoice_id, user_id, chat_id, message_id, amount_usd):
-    import time
     for _ in range(1800):  # 1 час, проверка каждые 2 сек
         time.sleep(2)
         inv = check_invoice_status(invoice_id)
@@ -281,8 +355,6 @@ def balance_kb():
     kb.add(eb("refill", "Пополнить баланс", callback_data="refill_balance"))
     kb.add(eb("back", "Назад", callback_data="back_to_menu"))
     return kb
-
-
 
 def pay_kb(pay_url):
     kb = types.InlineKeyboardMarkup(row_width=1)
@@ -393,6 +465,8 @@ def show_balance_inline(chat_id, user_id, message_id=None):
 @bot.message_handler(commands=["start"])
 def cmd_start(message):
     user = message.from_user
+    if not check_rate_limit(user.id):
+        return
     if is_banned(user.id):
         return
     register_user(user)
@@ -444,6 +518,9 @@ def cb_back_to_menu(call):
 
 @bot.callback_query_handler(func=lambda c: c.data == "rules")
 def cb_rules(call):
+    if not check_rate_limit(call.from_user.id):
+        bot.answer_callback_query(call.id, "Слишком часто! Подождите секунду.", show_alert=True)
+        return
     markup = types.InlineKeyboardMarkup()
     markup.add(eb("back", "Назад", callback_data="back_to_menu"))
     bot.edit_message_text(
@@ -463,6 +540,9 @@ def cb_rules(call):
 @bot.callback_query_handler(func=lambda c: c.data == "check_balance")
 def cb_check_balance(call):
     if is_banned(call.from_user.id):
+        return
+    if not check_rate_limit(call.from_user.id):
+        bot.answer_callback_query(call.id, "Слишком часто! Подождите секунду.", show_alert=True)
         return
     bot.clear_step_handler_by_chat_id(call.message.chat.id)
     show_balance_inline(call.message.chat.id, call.from_user.id, call.message.message_id)
@@ -535,6 +615,9 @@ def process_topup(user_id, amount, chat_id, message_id):
 def cb_refill_balance(call):
     if is_banned(call.from_user.id):
         return
+    if not check_rate_limit(call.from_user.id):
+        bot.answer_callback_query(call.id, "Слишком часто! Подождите секунду.", show_alert=True)
+        return
     bot.clear_step_handler_by_chat_id(call.message.chat.id)
     markup = types.InlineKeyboardMarkup(row_width=1)
     markup.add(eb("back", "Назад", callback_data="back_balance"))
@@ -549,8 +632,6 @@ def cb_refill_balance(call):
     bot.register_next_step_handler(msg, handle_custom_topup_input, call.message.message_id)
     bot.answer_callback_query(call.id)
 
-
-
 # ==================== TAKE NUMBER ====================
 
 @bot.callback_query_handler(func=lambda c: c.data == "take_number")
@@ -558,6 +639,9 @@ def cb_take_number(call):
     user = call.from_user
     uid  = user.id
     if is_banned(uid):
+        return
+    if not check_rate_limit(uid):
+        bot.answer_callback_query(call.id, "Слишком часто! Подождите секунду.", show_alert=True)
         return
 
     price = get_setting("number_price", 5.0)
@@ -842,6 +926,9 @@ def admin_text_input(message):
 
 @bot.callback_query_handler(func=lambda c: c.data == "user_sent")
 def cb_user_sent(call):
+    if not check_rate_limit(call.from_user.id):
+        bot.answer_callback_query(call.id, "Слишком часто! Подождите секунду.", show_alert=True)
+        return
     uid    = call.from_user.id
     number = active_numbers.get(uid, {}).get("number", "неизвестен")
     bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
@@ -987,4 +1074,4 @@ if __name__ == "__main__":
     setup_webhook()
     port = int(os.environ.get("PORT", 8080))
     print(f"🤖 Bot started on port {port}!")
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port, threaded=True)
